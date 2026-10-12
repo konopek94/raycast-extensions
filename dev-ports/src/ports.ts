@@ -64,6 +64,8 @@ export async function listListeners(): Promise<Listener[]> {
 }
 
 function isDev(name: string, port: number, command: string) {
+  // Raycast's extension host reports itself as "node"; killing it would take Raycast down with it.
+  if (command.startsWith("Raycast Helper")) return false;
   if (DEV_NAMES.test(name) || DEV_COMMAND.test(command)) return true;
   return port >= 3000 && port <= 9999 && !SYSTEM_PATH.test(command);
 }
