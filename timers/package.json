@@ -2,7 +2,7 @@
   "$schema": "https://www.raycast.com/schemas/extension.json",
   "name": "raycastini",
   "title": "Raycastini Timers",
-  "description": "Set timers and reminders by typing \"25m tea\", \"at 17:00 call mom\" or \"every 1h stretch\"",
+  "description": "Set timers and reminders by typing \"25m tea\", \"tomorrow 10am dentist\" or \"weekdays 9am standup\"",
   "icon": "icon.png",
   "author": "michalkonopka",
   "license": "MIT",
@@ -14,7 +14,7 @@
       "name": "start-timer",
       "title": "Start Timer",
       "subtitle": "Raycastini",
-      "description": "Start a timer or reminder: \"25m tea\", \"at 17:00 call mom\", \"every 1h stretch\"",
+      "description": "Start a timer or reminder: \"25m tea\", \"fri 18:00 call dad\", \"every 1h stretch\", \"weekdays 9am standup\"",
       "mode": "no-view",
       "arguments": [
         {
@@ -29,7 +29,7 @@
       "name": "timers-list",
       "title": "Timers",
       "subtitle": "Raycastini",
-      "description": "See, start and cancel timers and reminders",
+      "description": "See, start, pause and cancel timers and reminders",
       "mode": "view"
     },
     {
@@ -63,7 +63,8 @@
   "scripts": {
     "build": "ray build",
     "dev": "ray develop",
-    "lint": "ray lint"
+    "lint": "ray lint",
+    "publish": "npx @raycast/api@latest publish"
   },
   "preferences": [
     {

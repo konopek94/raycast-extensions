@@ -5,16 +5,25 @@ import os from "node:os";
 import path from "node:path";
 import { nextAt, type Parsed } from "./parse";
 
-export type Timer = Parsed & { id: string; createdAt: number; pid: number };
+export type Timer = Parsed & {
+  id: string;
+  createdAt: number;
+  /** 0 while paused. */
+  pid: number;
+  /** Set while paused: how much was left when it was paused. */
+  pausedRemaining?: number;
+};
 
 const KEY = "timers";
+const HISTORY_KEY = "history";
+const HISTORY_SIZE = 15;
 // Passed as the shell's $0 so `ps` can tell our alert processes from a reused pid.
 const MARKER = "raycastini-timer";
 
 // Runs detached so it fires even after Raycast unloads the extension.
 // User text arrives as positional arguments, never interpolated into the script.
-// Args: delay, name, title, repeat ("" | seconds | daily:HH:MM), sound path, snooze seconds,
-// snooze label, Raycast deeplink to the Ringing command, stop file
+// Args: delay, name, title, repeat ("" | seconds | daily:HH:MM:isoDays), sound path,
+// snooze seconds, snooze label, Raycast deeplink to the Ringing command, stop file
 const ALERT_SCRIPT = `
 NAME=$2 TITLE=$3 REPEAT=$4 SOUND=$5 SNOOZE=$6 SNOOZE_LABEL=$7 URL=$8 STOP=$9
 # Fallback when Raycast can't be opened: a plain system dialog.
@@ -37,12 +46,20 @@ sleep "$1"
 case "$REPEAT" in
   "") alert ;;
   daily:*)
+    SPEC=\${REPEAT#daily:}; HM=\${SPEC%:*}; DAYS=\${SPEC##*:}
     while :; do
       alert &
       sleep 60
       now=$(date +%s)
-      t=$(date -j -f %H:%M:%S "\${REPEAT#daily:}:00" +%s)
-      [ "$t" -le "$now" ] && t=$((t + 86400))
+      # Next HH:MM on an allowed weekday; -v+Nd keeps the wall-clock time across DST.
+      n=0
+      while :; do
+        t=$(date -j -v+"$n"d -f %H:%M:%S "$HM:00" +%s)
+        if [ "$t" -gt "$now" ]; then
+          case "$DAYS" in *"$(date -r "$t" +%u)"*) break ;; esac
+        fi
+        n=$((n + 1))
+      done
       sleep $((t - now))
     done ;;
   *) while :; do alert & sleep "$REPEAT"; done ;;
@@ -50,14 +67,13 @@ esac
 `;
 
 export async function getTimers(): Promise<Timer[]> {
-  const raw = await LocalStorage.getItem<string>(KEY);
-  const stored: Timer[] = raw ? JSON.parse(raw) : [];
+  const stored = await read<Timer>(KEY);
   const now = Date.now();
   let changed = false;
   const timers: Timer[] = [];
 
   for (const timer of stored) {
-    if (isAlive(timer.pid)) {
+    if (timer.pausedRemaining !== undefined || isAlive(timer.pid)) {
       timers.push(timer);
       continue;
     }
@@ -69,10 +85,19 @@ export async function getTimers(): Promise<Timer[]> {
   }
 
   if (changed) await save(timers);
-  return timers.sort((a, b) => nextAt(a, now) - nextAt(b, now));
+  // Running ones by next alert, paused ones last.
+  return timers.sort(
+    (a, b) =>
+      Number(isPaused(a)) - Number(isPaused(b)) ||
+      nextAt(a, now) - nextAt(b, now),
+  );
 }
 
-export async function startTimer(parsed: Parsed): Promise<Timer> {
+/** `input` is what the user typed; it goes into Recent so it can be started again. */
+export async function startTimer(
+  parsed: Parsed,
+  input?: string,
+): Promise<Timer> {
   const id = randomUUID();
   const timer: Timer = {
     ...parsed,
@@ -81,20 +106,82 @@ export async function startTimer(parsed: Parsed): Promise<Timer> {
     pid: spawnAlert({ ...parsed, id }),
   };
   await save([...(await getTimers()), timer]);
+  if (input) await addToHistory(input);
   return timer;
 }
 
 export async function cancelTimer(timer: Timer): Promise<void> {
-  if (isAlive(timer.pid)) {
-    // Negative pid kills the whole detached group: the pending `sleep`, open dialogs, snoozes.
-    process.kill(-timer.pid);
-  }
-  await save((await getTimers()).filter((t) => t.id !== timer.id));
+  const timers = await read<Timer>(KEY);
+  // Drop it from storage before killing it, or a concurrent getTimers() would see a dead
+  // repeating timer and re-arm it as if after a reboot.
+  await save(timers.filter((t) => t.id !== timer.id));
+  stopProcess(timers.find((t) => t.id === timer.id));
+}
+
+/** Only one-off countdowns can pause; a clock-time reminder has nothing to pause. */
+export function canPause(timer: Timer): boolean {
+  return (
+    timer.kind === "timer" &&
+    !timer.repeat &&
+    !isPaused(timer) &&
+    !isRinging(timer)
+  );
+}
+
+export async function pauseTimer(timer: Timer): Promise<void> {
+  const running = (await read<Timer>(KEY)).find((t) => t.id === timer.id);
+  // Mark it paused before killing it, for the same reason as in cancelTimer.
+  await update(timer.id, (t) => ({
+    ...t,
+    pid: 0,
+    pausedRemaining: Math.max(1000, t.endsAt - Date.now()),
+  }));
+  stopProcess(running);
+}
+
+export async function resumeTimer(timer: Timer): Promise<void> {
+  await update(timer.id, ({ pausedRemaining, ...t }) => {
+    const resumed = { ...t, endsAt: Date.now() + (pausedRemaining ?? 0) };
+    return { ...resumed, pid: spawnAlert(resumed) };
+  });
+}
+
+export function isPaused(timer: Timer): boolean {
+  return timer.pausedRemaining !== undefined;
 }
 
 /** A one-off timer whose time has passed but whose alert is still sounding or snoozed. */
 export function isRinging(timer: Timer, now = Date.now()): boolean {
-  return !timer.repeat && timer.endsAt <= now;
+  return !timer.repeat && !isPaused(timer) && timer.endsAt <= now;
+}
+
+export type HistoryEntry = { input: string; lastUsed: number };
+
+export async function getHistory(): Promise<HistoryEntry[]> {
+  return read<HistoryEntry>(HISTORY_KEY);
+}
+
+export async function removeFromHistory(input: string): Promise<void> {
+  const history = await getHistory();
+  await write(
+    HISTORY_KEY,
+    history.filter((h) => h.input !== input),
+  );
+}
+
+export async function clearHistory(): Promise<void> {
+  await LocalStorage.removeItem(HISTORY_KEY);
+}
+
+async function addToHistory(input: string) {
+  const trimmed = input.trim();
+  const rest = (await getHistory()).filter(
+    (h) => h.input.toLowerCase() !== trimmed.toLowerCase(),
+  );
+  await write(
+    HISTORY_KEY,
+    [{ input: trimmed, lastUsed: Date.now() }, ...rest].slice(0, HISTORY_SIZE),
+  );
 }
 
 /** What the Ringing command receives when a timer goes off. */
@@ -123,7 +210,7 @@ function spawnAlert(parsed: Parsed & { id: string }): number {
     ? ""
     : parsed.repeat.kind === "interval"
       ? String(parsed.repeat.seconds)
-      : `daily:${parsed.repeat.time}`;
+      : `daily:${parsed.repeat.time}:${(parsed.repeat.days ?? [1, 2, 3, 4, 5, 6, 7]).join("")}`;
 
   const child = spawn(
     "/bin/sh",
@@ -147,7 +234,16 @@ function spawnAlert(parsed: Parsed & { id: string }): number {
   return child.pid!;
 }
 
+/** Takes the stored record, whose pid is current even if the caller's copy is stale. */
+function stopProcess(timer: Timer | undefined) {
+  if (timer && isAlive(timer.pid)) {
+    // Negative pid kills the whole detached group: the pending `sleep`, sound loop, snoozes.
+    process.kill(-timer.pid);
+  }
+}
+
 function isAlive(pid: number): boolean {
+  if (!pid) return false;
   try {
     const command = execFileSync("/bin/ps", [
       "-p",
@@ -161,6 +257,20 @@ function isAlive(pid: number): boolean {
   }
 }
 
+async function update(id: string, change: (timer: Timer) => Timer) {
+  const timers = await read<Timer>(KEY);
+  await save(timers.map((t) => (t.id === id ? change(t) : t)));
+}
+
+async function read<T>(key: string): Promise<T[]> {
+  const raw = await LocalStorage.getItem<string>(key);
+  return raw ? JSON.parse(raw) : [];
+}
+
+async function write(key: string, value: unknown[]) {
+  await LocalStorage.setItem(key, JSON.stringify(value));
+}
+
 async function save(timers: Timer[]) {
-  await LocalStorage.setItem(KEY, JSON.stringify(timers));
+  await write(KEY, timers);
 }

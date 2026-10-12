@@ -18,10 +18,24 @@ import {
   type Parsed,
 } from "./parse";
 import { getPresets } from "./presets";
-import { cancelTimer, getTimers, isRinging, startTimer } from "./timers";
+import {
+  canPause,
+  cancelTimer,
+  clearHistory,
+  getHistory,
+  getTimers,
+  isPaused,
+  isRinging,
+  pauseTimer,
+  removeFromHistory,
+  resumeTimer,
+  startTimer,
+  type Timer,
+} from "./timers";
 
 export default function Command() {
-  const { data: timers, isLoading, revalidate } = usePromise(getTimers);
+  const timers = usePromise(getTimers);
+  const history = usePromise(getHistory);
   const [search, setSearch] = useState("");
   const [now, setNow] = useState(Date.now());
 
@@ -32,19 +46,26 @@ export default function Command() {
 
   const parsed = parse(search);
 
-  async function start(item: Parsed) {
-    await startTimer(item);
+  async function start(item: Parsed, input: string) {
+    await startTimer(item, input);
     setSearch("");
-    revalidate();
+    timers.revalidate();
+    history.revalidate();
     await showToast({ title: `Started ${item.name}` });
+  }
+
+  async function act(action: () => Promise<void>, title: string) {
+    await action();
+    timers.revalidate();
+    await showToast({ style: Toast.Style.Success, title });
   }
 
   return (
     <List
-      isLoading={isLoading}
+      isLoading={timers.isLoading}
       searchText={search}
       onSearchTextChange={setSearch}
-      searchBarPlaceholder='New: "25m tea", "at 17:00 call mom", "every 1h stretch"'
+      searchBarPlaceholder='New: "25m tea", "tomorrow 10am dentist", "weekdays 9am standup"'
       filtering={false}
     >
       {parsed && (
@@ -58,7 +79,7 @@ export default function Command() {
                 <Action
                   title="Start"
                   icon={Icon.Play}
-                  onAction={() => start(parsed)}
+                  onAction={() => start(parsed, search)}
                 />
               </ActionPanel>
             }
@@ -66,48 +87,92 @@ export default function Command() {
         </List.Section>
       )}
       <List.Section title="Running">
-        {timers?.map((timer) => {
-          const ringing = isRinging(timer, now);
-          return (
-            <List.Item
-              key={timer.id}
-              icon={iconFor(timer)}
-              title={timer.name}
-              subtitle={
-                ringing ? undefined : formatRemaining(nextAt(timer, now) - now)
-              }
-              accessories={[
-                ringing
-                  ? { tag: { value: "Ringing / snoozed", color: Color.Red } }
-                  : timer.repeat
-                    ? {
-                        tag: describeRepeat(timer.repeat),
-                        icon: Icon.Repeat,
-                      }
-                    : {},
-                { text: formatClock(nextAt(timer, now)), icon: Icon.Alarm },
-              ]}
-              actions={
-                <ActionPanel>
+        {timers.data?.map((timer) => (
+          <List.Item
+            key={timer.id}
+            icon={isPaused(timer) ? Icon.Pause : iconFor(timer)}
+            title={timer.name}
+            subtitle={subtitleFor(timer, now)}
+            accessories={accessoriesFor(timer, now)}
+            actions={
+              <ActionPanel>
+                {isPaused(timer) ? (
                   <Action
-                    title={ringing ? "Stop" : "Cancel"}
-                    icon={Icon.XMarkCircle}
-                    style={Action.Style.Destructive}
-                    onAction={async () => {
-                      await cancelTimer(timer);
-                      revalidate();
-                      await showToast({
-                        style: Toast.Style.Success,
-                        title: `Cancelled ${timer.name}`,
-                      });
-                    }}
+                    title="Resume"
+                    icon={Icon.Play}
+                    onAction={() =>
+                      act(() => resumeTimer(timer), `Resumed ${timer.name}`)
+                    }
                   />
-                </ActionPanel>
-              }
-            />
-          );
-        })}
+                ) : (
+                  canPause(timer) && (
+                    <Action
+                      title="Pause"
+                      icon={Icon.Pause}
+                      onAction={() =>
+                        act(() => pauseTimer(timer), `Paused ${timer.name}`)
+                      }
+                    />
+                  )
+                )}
+                <Action
+                  title={isRinging(timer, now) ? "Stop" : "Cancel"}
+                  icon={Icon.XMarkCircle}
+                  style={Action.Style.Destructive}
+                  shortcut={{ modifiers: ["ctrl"], key: "x" }}
+                  onAction={() =>
+                    act(() => cancelTimer(timer), `Cancelled ${timer.name}`)
+                  }
+                />
+              </ActionPanel>
+            }
+          />
+        ))}
       </List.Section>
+      {!search && (
+        <List.Section title="Recent">
+          {history.data?.map(({ input }) => {
+            const again = parse(input);
+            if (!again) return null;
+            return (
+              <List.Item
+                key={input}
+                icon={Icon.Clock}
+                title={input}
+                subtitle={whenText(again, now)}
+                actions={
+                  <ActionPanel>
+                    <Action
+                      title="Start Again"
+                      icon={Icon.RotateClockwise}
+                      onAction={() => start(again, input)}
+                    />
+                    <Action
+                      title="Remove from Recent"
+                      icon={Icon.Trash}
+                      shortcut={{ modifiers: ["ctrl"], key: "x" }}
+                      onAction={async () => {
+                        await removeFromHistory(input);
+                        history.revalidate();
+                      }}
+                    />
+                    <Action
+                      title="Clear Recent"
+                      icon={Icon.Trash}
+                      style={Action.Style.Destructive}
+                      shortcut={{ modifiers: ["ctrl", "shift"], key: "x" }}
+                      onAction={async () => {
+                        await clearHistory();
+                        history.revalidate();
+                      }}
+                    />
+                  </ActionPanel>
+                }
+              />
+            );
+          })}
+        </List.Section>
+      )}
       {!search && (
         <List.Section title="Quick Start">
           {getPresets().map(({ label, parsed: preset }) => (
@@ -120,7 +185,7 @@ export default function Command() {
                   <Action
                     title="Start"
                     icon={Icon.Play}
-                    onAction={() => start(preset)}
+                    onAction={() => start(preset, label)}
                   />
                 </ActionPanel>
               }
@@ -132,7 +197,7 @@ export default function Command() {
         <List.EmptyView
           icon={Icon.QuestionMarkCircle}
           title="Couldn't read that"
-          description='Try "25m tea", "1h30 laundry", "at 17:00 call mom" or "every 1h stretch"'
+          description='Try "25m tea", "at 17:00 call mom", "tomorrow 10am dentist", "every 1h stretch" or "weekdays 9am standup"'
         />
       )}
     </List>
@@ -147,6 +212,26 @@ function iconFor(item: Parsed) {
 function whenText(item: Parsed, now: number) {
   if (item.repeat) return describeRepeat(item.repeat);
   return item.kind === "reminder"
-    ? `at ${formatClock(item.endsAt)}`
+    ? formatClock(item.endsAt, now)
     : formatRemaining(item.endsAt - now);
+}
+
+function subtitleFor(timer: Timer, now: number) {
+  if (isPaused(timer)) return formatRemaining(timer.pausedRemaining!);
+  if (isRinging(timer, now)) return undefined;
+  return formatRemaining(nextAt(timer, now) - now);
+}
+
+function accessoriesFor(timer: Timer, now: number): List.Item.Accessory[] {
+  if (isPaused(timer)) {
+    return [{ tag: { value: "Paused", color: Color.Yellow } }];
+  }
+  const when = { text: formatClock(nextAt(timer, now), now), icon: Icon.Alarm };
+  if (isRinging(timer, now)) {
+    return [{ tag: { value: "Ringing / snoozed", color: Color.Red } }, when];
+  }
+  if (timer.repeat) {
+    return [{ tag: describeRepeat(timer.repeat), icon: Icon.Repeat }, when];
+  }
+  return [when];
 }

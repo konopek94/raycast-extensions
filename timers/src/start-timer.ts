@@ -17,12 +17,13 @@ export default async function Command(
     await showToast({
       style: Toast.Style.Failure,
       title: "Couldn't read that",
-      message: 'Try "25m tea", "at 17:00 call mom" or "every 1h stretch"',
+      message:
+        'Try "25m tea", "tomorrow 10am dentist" or "weekdays 9am standup"',
     });
     return;
   }
 
-  await startTimer(parsed);
+  await startTimer(parsed, props.arguments.input);
   // Refresh the menu bar right away instead of waiting for its next tick.
   await launchCommand({ name: "menu-bar", type: LaunchType.Background }).catch(
     () => {},
