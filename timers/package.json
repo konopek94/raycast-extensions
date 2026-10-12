@@ -1,0 +1,156 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "raycastini",
+  "title": "Raycastini Timers",
+  "description": "Set timers and reminders by typing \"25m tea\", \"at 17:00 call mom\" or \"every 1h stretch\"",
+  "icon": "icon.png",
+  "author": "michalkonopka",
+  "license": "MIT",
+  "categories": [
+    "Productivity"
+  ],
+  "commands": [
+    {
+      "name": "start-timer",
+      "title": "Start Timer",
+      "subtitle": "Raycastini",
+      "description": "Start a timer or reminder: \"25m tea\", \"at 17:00 call mom\", \"every 1h stretch\"",
+      "mode": "no-view",
+      "arguments": [
+        {
+          "name": "input",
+          "type": "text",
+          "placeholder": "25m tea / at 17:00 call mom",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "timers-list",
+      "title": "Timers",
+      "subtitle": "Raycastini",
+      "description": "See, start and cancel timers and reminders",
+      "mode": "view"
+    },
+    {
+      "name": "menu-bar",
+      "title": "Timers Menu Bar",
+      "subtitle": "Raycastini",
+      "description": "Countdown to the next timer in the menu bar",
+      "mode": "menu-bar",
+      "interval": "10s"
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.83.0",
+    "@raycast/utils": "^1.17.0"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^1.0.11",
+    "@types/node": "22.19.17",
+    "@types/react": "19.0.10",
+    "eslint": "^8.57.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.4.5"
+  },
+  "scripts": {
+    "build": "ray build",
+    "dev": "ray develop",
+    "lint": "ray lint"
+  },
+  "preferences": [
+    {
+      "name": "sound",
+      "title": "Alert Sound",
+      "description": "Sound played when a timer or reminder goes off",
+      "type": "dropdown",
+      "required": false,
+      "default": "Glass",
+      "data": [
+        {
+          "title": "Glass",
+          "value": "Glass"
+        },
+        {
+          "title": "Basso",
+          "value": "Basso"
+        },
+        {
+          "title": "Blow",
+          "value": "Blow"
+        },
+        {
+          "title": "Bottle",
+          "value": "Bottle"
+        },
+        {
+          "title": "Frog",
+          "value": "Frog"
+        },
+        {
+          "title": "Funk",
+          "value": "Funk"
+        },
+        {
+          "title": "Hero",
+          "value": "Hero"
+        },
+        {
+          "title": "Morse",
+          "value": "Morse"
+        },
+        {
+          "title": "Ping",
+          "value": "Ping"
+        },
+        {
+          "title": "Pop",
+          "value": "Pop"
+        },
+        {
+          "title": "Purr",
+          "value": "Purr"
+        },
+        {
+          "title": "Sosumi",
+          "value": "Sosumi"
+        },
+        {
+          "title": "Submarine",
+          "value": "Submarine"
+        },
+        {
+          "title": "Tink",
+          "value": "Tink"
+        },
+        {
+          "title": "None",
+          "value": "none"
+        }
+      ]
+    },
+    {
+      "name": "snoozeMinutes",
+      "title": "Snooze Minutes",
+      "description": "How long the Snooze button on the alert waits",
+      "type": "textfield",
+      "required": false,
+      "default": "5"
+    },
+    {
+      "name": "presets",
+      "title": "Presets",
+      "description": "Comma-separated quick starts shown in Timers and the menu bar",
+      "type": "textfield",
+      "required": false,
+      "default": "5m, 15m, 25m focus, 1h"
+    }
+  ],
+  "keywords": [
+    "timer",
+    "reminder",
+    "alarm",
+    "countdown",
+    "pomodoro"
+  ]
+}
