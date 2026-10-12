@@ -17,7 +17,7 @@ Timers and reminders for Raycast, typed the way you'd say them.
 | `every 30m drink water`, `every 1h stretch` | Repeating timer |
 | `every day at 9 standup`, `daily 9:30am meds` | Daily reminder |
 
-When it goes off you get a sound and a dialog with **Snooze** and **Done**.
+When it goes off, Raycast opens on a **Ringing** screen and the sound repeats until you press **Enter** (Done) or **⌘S** (snooze). If Raycast can't be opened, a system dialog with Snooze/Done is shown instead.
 
 ## Preferences
 
@@ -27,7 +27,7 @@ When it goes off you get a sound and a dialog with **Snooze** and **Done**.
 
 ## How it works
 
-Each timer is a detached `/bin/sh` process (`sleep` → `afplay` + `osascript` dialog), so alerts fire
+Each timer is a detached `/bin/sh` process (`sleep` → opens the Ringing command via deeplink + looping `afplay`), so alerts fire
 even when Raycast has unloaded the extension. Timers are stored in Raycast LocalStorage; whenever the
 list or menu bar loads, any timer whose process died (logout, reboot) is re-armed. A one-off reminder
 whose time passed while the Mac was off is dropped silently.

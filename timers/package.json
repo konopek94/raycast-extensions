@@ -39,6 +39,13 @@
       "description": "Countdown to the next timer in the menu bar",
       "mode": "menu-bar",
       "interval": "10s"
+    },
+    {
+      "name": "ringing",
+      "title": "Ringing Timer",
+      "subtitle": "Raycastini",
+      "description": "Opens by itself when a timer or reminder goes off",
+      "mode": "view"
     }
   ],
   "dependencies": {

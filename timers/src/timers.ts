@@ -1,6 +1,8 @@
-import { getPreferenceValues, LocalStorage } from "@raycast/api";
+import { environment, getPreferenceValues, LocalStorage } from "@raycast/api";
 import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import os from "node:os";
+import path from "node:path";
 import { nextAt, type Parsed } from "./parse";
 
 export type Timer = Parsed & { id: string; createdAt: number; pid: number };
@@ -11,13 +13,25 @@ const MARKER = "raycastini-timer";
 
 // Runs detached so it fires even after Raycast unloads the extension.
 // User text arrives as positional arguments, never interpolated into the script.
-// Args: delay, name, title, repeat ("" | seconds | daily:HH:MM), sound path, snooze seconds, snooze label
+// Args: delay, name, title, repeat ("" | seconds | daily:HH:MM), sound path, snooze seconds,
+// snooze label, Raycast deeplink to the Ringing command, stop file
 const ALERT_SCRIPT = `
-NAME=$2 TITLE=$3 REPEAT=$4 SOUND=$5 SNOOZE=$6 SNOOZE_LABEL=$7
-alert() {
+NAME=$2 TITLE=$3 REPEAT=$4 SOUND=$5 SNOOZE=$6 SNOOZE_LABEL=$7 URL=$8 STOP=$9
+# Fallback when Raycast can't be opened: a plain system dialog.
+dialog() {
   if [ -n "$SOUND" ]; then afplay "$SOUND" & fi
   btn=$(osascript -e 'on run argv' -e 'display dialog (item 1 of argv) with title (item 2 of argv) buttons {item 3 of argv, "Done"} default button "Done" with icon note' -e 'end run' "$NAME" "$TITLE" "$SNOOZE_LABEL")
-  case "$btn" in *"$SNOOZE_LABEL"*) sleep "$SNOOZE"; alert ;; esac
+  case "$btn" in *"$SNOOZE_LABEL"*) sleep "$SNOOZE"; dialog ;; esac
+}
+alert() {
+  rm -f "$STOP"
+  if open "$URL"; then
+    # Keep ringing until the Ringing view creates the stop file (Done, Snooze or Esc), ~1 min max.
+    i=0
+    while [ -n "$SOUND" ] && [ "$i" -lt 40 ] && [ ! -e "$STOP" ]; do afplay "$SOUND"; i=$((i + 1)); done
+  else
+    dialog
+  fi
 }
 sleep "$1"
 case "$REPEAT" in
@@ -59,11 +73,12 @@ export async function getTimers(): Promise<Timer[]> {
 }
 
 export async function startTimer(parsed: Parsed): Promise<Timer> {
+  const id = randomUUID();
   const timer: Timer = {
     ...parsed,
-    id: randomUUID(),
+    id,
     createdAt: Date.now(),
-    pid: spawnAlert(parsed),
+    pid: spawnAlert({ ...parsed, id }),
   };
   await save([...(await getTimers()), timer]);
   return timer;
@@ -77,14 +92,32 @@ export async function cancelTimer(timer: Timer): Promise<void> {
   await save((await getTimers()).filter((t) => t.id !== timer.id));
 }
 
-/** A one-off timer whose time has passed but whose alert is still open or snoozed. */
+/** A one-off timer whose time has passed but whose alert is still sounding or snoozed. */
 export function isRinging(timer: Timer, now = Date.now()): boolean {
   return !timer.repeat && timer.endsAt <= now;
 }
 
-function spawnAlert(parsed: Parsed): number {
-  const { sound, snoozeMinutes } = getPreferenceValues<Preferences>();
-  const snooze = Math.max(1, Number(snoozeMinutes) || 5);
+/** What the Ringing command receives when a timer goes off. */
+export type RingContext = {
+  name: string;
+  kind: Parsed["kind"];
+  stopFile: string;
+};
+
+export function snoozeMinutes(): number {
+  const { snoozeMinutes } = getPreferenceValues<Preferences>();
+  return Math.max(1, Number(snoozeMinutes) || 5);
+}
+
+function spawnAlert(parsed: Parsed & { id: string }): number {
+  const { sound } = getPreferenceValues<Preferences>();
+  const snooze = snoozeMinutes();
+  const context: RingContext = {
+    name: parsed.name,
+    kind: parsed.kind,
+    stopFile: path.join(os.tmpdir(), `raycastini-${parsed.id}.stop`),
+  };
+  const url = `raycast://extensions/${environment.ownerOrAuthorName}/${environment.extensionName}/ringing?launchContext=${encodeURIComponent(JSON.stringify(context))}`;
   const delay = Math.max(0, Math.round((nextAt(parsed) - Date.now()) / 1000));
   const repeat = !parsed.repeat
     ? ""
@@ -105,6 +138,8 @@ function spawnAlert(parsed: Parsed): number {
       sound === "none" ? "" : `/System/Library/Sounds/${sound}.aiff`,
       String(snooze * 60),
       `Snooze ${snooze} min`,
+      url,
+      context.stopFile,
     ],
     { detached: true, stdio: "ignore" },
   );
