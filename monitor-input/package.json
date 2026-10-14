@@ -1,0 +1,68 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "monitor-input",
+  "title": "Monitor Input",
+  "description": "Switch the external monitor between the Mac and the Xbox",
+  "icon": "icon.png",
+  "author": "michalkonopka",
+  "license": "MIT",
+  "categories": [
+    "System"
+  ],
+  "preferences": [
+    {
+      "name": "macInput",
+      "title": "Mac Input",
+      "description": "DDC input code of the Mac's port (USB-C usually reports 15)",
+      "type": "textfield",
+      "default": "15",
+      "required": true
+    },
+    {
+      "name": "xboxInput",
+      "title": "Xbox Input",
+      "description": "Monitor port the Xbox is plugged into",
+      "type": "dropdown",
+      "default": "17",
+      "required": true,
+      "data": [
+        { "title": "HDMI 1", "value": "17" },
+        { "title": "HDMI 2", "value": "18" }
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "name": "toggle-input",
+      "title": "Toggle Monitor Input",
+      "subtitle": "Monitor Input",
+      "description": "Switch the monitor to the Xbox (Mac mirrors onto the laptop screen) and back",
+      "mode": "no-view"
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.83.0"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^1.0.11",
+    "@types/node": "22.19.17",
+    "@types/react": "19.0.10",
+    "eslint": "^8.57.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.4.5"
+  },
+  "scripts": {
+    "build": "ray build",
+    "dev": "ray develop",
+    "lint": "ray lint",
+    "publish": "npx @raycast/api@latest publish"
+  },
+  "keywords": [
+    "monitor",
+    "display",
+    "input",
+    "hdmi",
+    "xbox",
+    "ddc"
+  ]
+}
